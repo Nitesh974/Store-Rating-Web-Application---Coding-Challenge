@@ -1,0 +1,763 @@
+import React, { useState, createContext, useContext, useMemo } from 'react';
+
+// --- MOCK DATA ---
+// In a real application, this data would come from a backend API.
+
+const initialUsers = [
+  { id: 1, name: 'Administrator User Full Name', email: 'admin@example.com', password: 'Password@1', address: '123 Admin St, Admin City', role: 'System Administrator' },
+  { id: 2, name: 'Normal User Example Full Name', email: 'user@example.com', password: 'Password@2', address: '456 User Ave, User Town', role: 'Normal User' },
+  { id: 3, name: 'Store Owner Example Full Name', email: 'owner@example.com', password: 'Password@3', address: '789 Owner Rd, Owner Village', role: 'Store Owner' },
+  { id: 4, name: 'Another Normal User Full Name', email: 'user2@example.com', password: 'Password@4', address: '101 Another St, User Town', role: 'Normal User' },
+];
+
+const initialStores = [
+  { id: 1, name: 'SuperMart', email: 'contact@supermart.com', address: '100 Market Street', ownerId: 3 },
+  { id: 2, name: 'QuickStop Groceries', email: 'help@quickstop.com', address: '200 Corner Avenue' },
+  { id: 3, name: 'The Book Nook', email: 'books@booknook.com', address: '300 Library Lane' },
+  { id: 4, name: 'Gadget Galaxy', email: 'support@galaxy.com', address: '400 Tech Park' },
+];
+
+const initialRatings = [
+  { id: 1, userId: 2, storeId: 1, rating: 5 },
+  { id: 2, userId: 2, storeId: 2, rating: 4 },
+  { id: 3, userId: 4, storeId: 1, rating: 3 },
+  { id: 4, userId: 4, storeId: 3, rating: 5 },
+];
+
+
+// --- AUTHENTICATION CONTEXT ---
+// Manages the currently logged-in user across the application.
+
+const AuthContext = createContext();
+
+const AuthProvider = ({ children }) => {
+  const [currentUser, setCurrentUser] = useState(null);
+
+  const login = (email, password) => {
+    const user = initialUsers.find(u => u.email === email && u.password === password);
+    if (user) {
+      setCurrentUser(user);
+      return user;
+    }
+    return null;
+  };
+
+  const logout = () => {
+    setCurrentUser(null);
+  };
+
+  const value = { currentUser, login, logout, setCurrentUser };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
+
+const useAuth = () => useContext(AuthContext);
+
+
+// --- UTILITY FUNCTIONS & HOOKS ---
+
+// A custom hook for sorting table data
+const useSortableData = (items, config = null) => {
+  const [sortConfig, setSortConfig] = useState(config);
+
+  const sortedItems = useMemo(() => {
+    let sortableItems = [...items];
+    if (sortConfig !== null) {
+      sortableItems.sort((a, b) => {
+        if (a[sortConfig.key] < b[sortConfig.key]) {
+          return sortConfig.direction === 'ascending' ? -1 : 1;
+        }
+        if (a[sortConfig.key] > b[sortConfig.key]) {
+          return sortConfig.direction === 'ascending' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    return sortableItems;
+  }, [items, sortConfig]);
+
+  const requestSort = (key) => {
+    let direction = 'ascending';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
+      direction = 'descending';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  return { items: sortedItems, requestSort, sortConfig };
+};
+
+// Form validation functions
+const validateName = (name) => name.length >= 20 && name.length <= 60;
+const validateAddress = (address) => address.length > 0 && address.length <= 400;
+const validateEmail = (email) => /\S+@\S+\.\S+/.test(email);
+const validatePassword = (password) => /^(?=.*[A-Z])(?=.*[!@#$&*])(?=.*[0-9a-zA-Z]).{8,16}$/.test(password);
+
+
+// --- SHARED COMPONENTS ---
+
+// Star rating component for display and input
+const StarRating = ({ rating, onRating, readOnly = false }) => {
+  return (
+    <div className="flex">
+      {[...Array(5)].map((_, index) => {
+        const starValue = index + 1;
+        return (
+          <svg
+            key={starValue}
+            onClick={() => !readOnly && onRating(starValue)}
+            className={`w-6 h-6 cursor-${readOnly ? 'default' : 'pointer'} ${starValue <= rating ? 'text-yellow-400' : 'text-gray-300'}`}
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+          </svg>
+        );
+      })}
+    </div>
+  );
+};
+
+// Modal component for forms
+const Modal = ({ children, isOpen, onClose }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center">
+      <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md relative">
+        <button onClick={onClose} className="absolute top-2 right-2 text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
+        {children}
+      </div>
+    </div>
+  );
+};
+
+// Header component with navigation
+const Header = () => {
+  const { currentUser, logout } = useAuth();
+  return (
+    <header className="bg-gray-800 text-white p-4 shadow-md">
+      <div className="container mx-auto flex justify-between items-center">
+        <h1 className="text-2xl font-bold">Store Ratings</h1>
+        {currentUser && (
+          <div className="flex items-center space-x-4">
+            <span className="text-sm">Welcome, {currentUser.name} ({currentUser.role})</span>
+            <button onClick={logout} className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition duration-200">
+              Logout
+            </button>
+          </div>
+        )}
+      </div>
+    </header>
+  );
+};
+
+// --- FORM COMPONENTS ---
+
+// Generic input field for forms
+const InputField = ({ id, label, type, value, onChange, error, ...props }) => (
+    <div>
+        <label htmlFor={id} className="block text-sm font-medium text-gray-700">{label}</label>
+        <input
+            id={id}
+            type={type}
+            value={value}
+            onChange={onChange}
+            className={`mt-1 block w-full px-3 py-2 bg-white border ${error ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`}
+            {...props}
+        />
+        {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+    </div>
+);
+
+// Password update form
+const UpdatePasswordForm = ({ onUpdate, onCancel }) => {
+    const [passwords, setPasswords] = useState({ newPassword: '', confirmPassword: '' });
+    const [error, setError] = useState('');
+
+    const handleChange = (e) => {
+        setPasswords({ ...passwords, [e.target.id]: e.target.value });
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!validatePassword(passwords.newPassword)) {
+            setError('Password must be 8-16 characters, with one uppercase letter and one special character.');
+            return;
+        }
+        if (passwords.newPassword !== passwords.confirmPassword) {
+            setError('Passwords do not match.');
+            return;
+        }
+        setError('');
+        onUpdate(passwords.newPassword);
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <h3 className="text-lg font-medium leading-6 text-gray-900">Update Password</h3>
+            <InputField id="newPassword" label="New Password" type="password" value={passwords.newPassword} onChange={handleChange} />
+            <InputField id="confirmPassword" label="Confirm New Password" type="password" value={passwords.confirmPassword} onChange={handleChange} />
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <div className="flex justify-end space-x-2">
+                <button type="button" onClick={onCancel} className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg">Cancel</button>
+                <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">Update</button>
+            </div>
+        </form>
+    );
+};
+
+// --- DASHBOARD COMPONENTS ---
+
+// Admin Dashboard
+const AdminDashboard = ({ users, setUsers, stores, setStores, ratings }) => {
+    const [isAddUserModalOpen, setAddUserModalOpen] = useState(false);
+    const [isAddStoreModalOpen, setAddStoreModalOpen] = useState(false);
+    const [filters, setFilters] = useState({ name: '', email: '', address: '', role: '' });
+
+    const { items: sortedUsers, requestSort: requestUserSort, sortConfig: userSortConfig } = useSortableData(users);
+    const { items: sortedStores, requestSort: requestStoreSort, sortConfig: storeSortConfig } = useSortableData(stores);
+
+    const filteredUsers = sortedUsers.filter(user =>
+        user.name.toLowerCase().includes(filters.name.toLowerCase()) &&
+        user.email.toLowerCase().includes(filters.email.toLowerCase()) &&
+        user.address.toLowerCase().includes(filters.address.toLowerCase()) &&
+        (filters.role === '' || user.role === filters.role)
+    );
+
+    const filteredStores = sortedStores.filter(store =>
+        store.name.toLowerCase().includes(filters.name.toLowerCase()) &&
+        store.email.toLowerCase().includes(filters.email.toLowerCase()) &&
+        store.address.toLowerCase().includes(filters.address.toLowerCase())
+    );
+
+    const getStoreRating = (storeId) => {
+        const storeRatings = ratings.filter(r => r.storeId === storeId);
+        if (storeRatings.length === 0) return 'N/A';
+        const avg = storeRatings.reduce((acc, curr) => acc + curr.rating, 0) / storeRatings.length;
+        return avg.toFixed(1);
+    };
+
+    const handleFilterChange = (e) => setFilters({ ...filters, [e.target.name]: e.target.value });
+
+    const AddUserForm = () => {
+        const [formData, setFormData] = useState({ name: '', email: '', password: '', address: '', role: 'Normal User' });
+        const [errors, setErrors] = useState({});
+
+        const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+
+        const handleSubmit = (e) => {
+            e.preventDefault();
+            const newErrors = {};
+            if (!validateName(formData.name)) newErrors.name = "Name must be 20-60 characters.";
+            if (!validateEmail(formData.email)) newErrors.email = "Invalid email format.";
+            if (!validatePassword(formData.password)) newErrors.password = "Password must be 8-16 characters, with one uppercase letter and one special character.";
+            if (!validateAddress(formData.address)) newErrors.address = "Address cannot be empty and max 400 characters.";
+            
+            if (Object.keys(newErrors).length > 0) {
+                setErrors(newErrors);
+                return;
+            }
+            
+            const newUser = { id: Date.now(), ...formData };
+            setUsers([...users, newUser]);
+            setAddUserModalOpen(false);
+        };
+
+        return (
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <h3 className="text-xl font-semibold">Add New User</h3>
+                <InputField id="name" name="name" label="Name" type="text" value={formData.name} onChange={handleChange} error={errors.name} />
+                <InputField id="email" name="email" label="Email" type="email" value={formData.email} onChange={handleChange} error={errors.email} />
+                <InputField id="password" name="password" label="Password" type="password" value={formData.password} onChange={handleChange} error={errors.password} />
+                <InputField id="address" name="address" label="Address" type="text" value={formData.address} onChange={handleChange} error={errors.address} />
+                <div>
+                    <label htmlFor="role" className="block text-sm font-medium text-gray-700">Role</label>
+                    <select id="role" name="role" value={formData.role} onChange={handleChange} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                        <option>Normal User</option>
+                        <option>System Administrator</option>
+                        <option>Store Owner</option>
+                    </select>
+                </div>
+                <div className="flex justify-end">
+                    <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">Add User</button>
+                </div>
+            </form>
+        );
+    };
+    
+    const AddStoreForm = () => {
+        const [formData, setFormData] = useState({ name: '', email: '', address: '' });
+        const [errors, setErrors] = useState({});
+
+        const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+        
+        const handleSubmit = (e) => {
+            e.preventDefault();
+            const newErrors = {};
+            if (!validateName(formData.name)) newErrors.name = "Name must be 20-60 characters.";
+            if (!validateEmail(formData.email)) newErrors.email = "Invalid email format.";
+            if (!validateAddress(formData.address)) newErrors.address = "Address cannot be empty and max 400 characters.";
+
+            if (Object.keys(newErrors).length > 0) {
+                setErrors(newErrors);
+                return;
+            }
+
+            const newStore = { id: Date.now(), ...formData };
+            setStores([...stores, newStore]);
+            setAddStoreModalOpen(false);
+        };
+
+        return (
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <h3 className="text-xl font-semibold">Add New Store</h3>
+                <InputField id="name" name="name" label="Name" type="text" value={formData.name} onChange={handleChange} error={errors.name} />
+                <InputField id="email" name="email" label="Email" type="email" value={formData.email} onChange={handleChange} error={errors.email} />
+                <InputField id="address" name="address" label="Address" type="text" value={formData.address} onChange={handleChange} error={errors.address} />
+                <div className="flex justify-end">
+                    <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">Add Store</button>
+                </div>
+            </form>
+        );
+    };
+
+    const SortableHeader = ({ label, field, requestSort, sortConfig }) => {
+        const isSorted = sortConfig && sortConfig.key === field;
+        const directionIcon = isSorted ? (sortConfig.direction === 'ascending' ? '▲' : '▼') : '';
+        return (
+            <th onClick={() => requestSort(field)} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer">
+                {label} {directionIcon}
+            </th>
+        );
+    };
+
+    return (
+        <div className="p-8 space-y-8">
+            <h2 className="text-3xl font-bold text-gray-800">Admin Dashboard</h2>
+            
+            {/* Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="text-gray-500">Total Users</h3><p className="text-3xl font-bold">{users.length}</p></div>
+                <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="text-gray-500">Total Stores</h3><p className="text-3xl font-bold">{stores.length}</p></div>
+                <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="text-gray-500">Total Ratings</h3><p className="text-3xl font-bold">{ratings.length}</p></div>
+            </div>
+
+            {/* Users List */}
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-semibold">Users</h3>
+                    <button onClick={() => setAddUserModalOpen(true)} className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Add User</button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                    <input type="text" name="name" placeholder="Filter by Name" onChange={handleFilterChange} className="p-2 border rounded"/>
+                    <input type="text" name="email" placeholder="Filter by Email" onChange={handleFilterChange} className="p-2 border rounded"/>
+                    <input type="text" name="address" placeholder="Filter by Address" onChange={handleFilterChange} className="p-2 border rounded"/>
+                    <select name="role" onChange={handleFilterChange} className="p-2 border rounded">
+                        <option value="">All Roles</option>
+                        <option>Normal User</option>
+                        <option>System Administrator</option>
+                        <option>Store Owner</option>
+                    </select>
+                </div>
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <SortableHeader label="Name" field="name" requestSort={requestUserSort} sortConfig={userSortConfig} />
+                            <SortableHeader label="Email" field="email" requestSort={requestUserSort} sortConfig={userSortConfig} />
+                            <SortableHeader label="Address" field="address" requestSort={requestUserSort} sortConfig={userSortConfig} />
+                            <SortableHeader label="Role" field="role" requestSort={requestUserSort} sortConfig={userSortConfig} />
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {filteredUsers.map(user => (
+                            <tr key={user.id}>
+                                <td className="px-6 py-4 whitespace-nowrap">{user.name}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">{user.email}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">{user.address}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">{user.role}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Stores List */}
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                 <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-semibold">Stores</h3>
+                    <button onClick={() => setAddStoreModalOpen(true)} className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Add Store</button>
+                </div>
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <SortableHeader label="Name" field="name" requestSort={requestStoreSort} sortConfig={storeSortConfig} />
+                            <SortableHeader label="Email" field="email" requestSort={requestStoreSort} sortConfig={storeSortConfig} />
+                            <SortableHeader label="Address" field="address" requestSort={requestStoreSort} sortConfig={storeSortConfig} />
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rating</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {filteredStores.map(store => (
+                            <tr key={store.id}>
+                                <td className="px-6 py-4 whitespace-nowrap">{store.name}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">{store.email}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">{store.address}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">{getStoreRating(store.id)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            <Modal isOpen={isAddUserModalOpen} onClose={() => setAddUserModalOpen(false)}>
+                <AddUserForm />
+            </Modal>
+            <Modal isOpen={isAddStoreModalOpen} onClose={() => setAddStoreModalOpen(false)}>
+                <AddStoreForm />
+            </Modal>
+        </div>
+    );
+};
+
+// Normal User Dashboard
+const UserDashboard = ({ stores, ratings, setRatings }) => {
+    const { currentUser, setCurrentUser } = useAuth();
+    const [searchTerm, setSearchTerm] = useState('');
+    const [addressFilter, setAddressFilter] = useState('');
+    const [ratingModal, setRatingModal] = useState({ isOpen: false, store: null, currentRating: 0 });
+    const [isPasswordModalOpen, setPasswordModalOpen] = useState(false);
+
+    const filteredStores = stores.filter(store =>
+        store.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
+        store.address.toLowerCase().includes(addressFilter.toLowerCase())
+    );
+
+    const getStoreInfo = (storeId) => {
+        const storeRatings = ratings.filter(r => r.storeId === storeId);
+        const userRating = storeRatings.find(r => r.userId === currentUser.id);
+        const overallRating = storeRatings.length > 0
+            ? (storeRatings.reduce((sum, r) => sum + r.rating, 0) / storeRatings.length).toFixed(1)
+            : 'N/A';
+        return { userRating: userRating ? userRating.rating : 0, overallRating };
+    };
+
+    const handleRatingSubmit = (storeId, newRating) => {
+        const existingRatingIndex = ratings.findIndex(r => r.userId === currentUser.id && r.storeId === storeId);
+        let updatedRatings;
+
+        if (existingRatingIndex > -1) {
+            updatedRatings = [...ratings];
+            updatedRatings[existingRatingIndex].rating = newRating;
+        } else {
+            const newRatingObject = { id: Date.now(), userId: currentUser.id, storeId, rating: newRating };
+            updatedRatings = [...ratings, newRatingObject];
+        }
+        setRatings(updatedRatings);
+        setRatingModal({ isOpen: false, store: null, currentRating: 0 });
+    };
+    
+    const handlePasswordUpdate = (newPassword) => {
+        // In a real app, this would be an API call. Here we just update the mock data.
+        const userIndex = initialUsers.findIndex(u => u.id === currentUser.id);
+        if (userIndex > -1) {
+            initialUsers[userIndex].password = newPassword;
+            setCurrentUser({ ...currentUser, password: newPassword });
+        }
+        setPasswordModalOpen(false);
+        alert("Password updated successfully!");
+    };
+
+
+    return (
+        <div className="p-8 space-y-6">
+            <div className="flex justify-between items-center">
+                <h2 className="text-3xl font-bold text-gray-800">Stores</h2>
+                <button onClick={() => setPasswordModalOpen(true)} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">Update Password</button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input type="text" placeholder="Search by Store Name..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="p-2 border rounded-lg shadow-sm w-full"/>
+                <input type="text" placeholder="Search by Address..." value={addressFilter} onChange={(e) => setAddressFilter(e.target.value)} className="p-2 border rounded-lg shadow-sm w-full"/>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredStores.map(store => {
+                    const { userRating, overallRating } = getStoreInfo(store.id);
+                    return (
+                        <div key={store.id} className="bg-white p-6 rounded-lg shadow-lg transition hover:shadow-xl">
+                            <h3 className="text-xl font-bold mb-2">{store.name}</h3>
+                            <p className="text-gray-600 mb-4">{store.address}</p>
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="font-semibold">Overall Rating:</span>
+                                    <span>{overallRating} / 5</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="font-semibold">Your Rating:</span>
+                                    <StarRating rating={userRating} readOnly={true} />
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setRatingModal({ isOpen: true, store, currentRating: userRating })}
+                                className="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg"
+                            >
+                                {userRating > 0 ? 'Modify Rating' : 'Submit Rating'}
+                            </button>
+                        </div>
+                    );
+                })}
+            </div>
+
+            <Modal isOpen={ratingModal.isOpen} onClose={() => setRatingModal({ isOpen: false, store: null, currentRating: 0 })}>
+                <div className="text-center space-y-4">
+                    <h3 className="text-xl font-bold">Rate {ratingModal.store?.name}</h3>
+                    <div className="flex justify-center">
+                        <StarRating rating={ratingModal.currentRating} onRating={(r) => setRatingModal({...ratingModal, currentRating: r})} />
+                    </div>
+                    <button
+                        onClick={() => handleRatingSubmit(ratingModal.store.id, ratingModal.currentRating)}
+                        className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg"
+                    >
+                        Submit
+                    </button>
+                </div>
+            </Modal>
+            <Modal isOpen={isPasswordModalOpen} onClose={() => setPasswordModalOpen(false)}>
+                <UpdatePasswordForm onUpdate={handlePasswordUpdate} onCancel={() => setPasswordModalOpen(false)} />
+            </Modal>
+        </div>
+    );
+};
+
+// Store Owner Dashboard
+const StoreOwnerDashboard = ({ stores, users, ratings }) => {
+    const { currentUser, setCurrentUser } = useAuth();
+    const [isPasswordModalOpen, setPasswordModalOpen] = useState(false);
+    
+    const myStore = stores.find(s => s.ownerId === currentUser.id);
+
+    if (!myStore) {
+        return <div className="p-8"><h2 className="text-2xl font-bold">You do not own any stores.</h2></div>;
+    }
+
+    const myStoreRatings = ratings.filter(r => r.storeId === myStore.id);
+    const averageRating = myStoreRatings.length > 0
+        ? (myStoreRatings.reduce((sum, r) => sum + r.rating, 0) / myStoreRatings.length).toFixed(1)
+        : 'N/A';
+
+    const raters = myStoreRatings.map(rating => {
+        const user = users.find(u => u.id === rating.userId);
+        return { ...user, rating: rating.rating };
+    });
+
+    const handlePasswordUpdate = (newPassword) => {
+        const userIndex = initialUsers.findIndex(u => u.id === currentUser.id);
+        if (userIndex > -1) {
+            initialUsers[userIndex].password = newPassword;
+            setCurrentUser({ ...currentUser, password: newPassword });
+        }
+        setPasswordModalOpen(false);
+        alert("Password updated successfully!");
+    };
+
+    return (
+        <div className="p-8 space-y-6">
+            <div className="flex justify-between items-center">
+                <h2 className="text-3xl font-bold text-gray-800">Dashboard for {myStore.name}</h2>
+                <button onClick={() => setPasswordModalOpen(true)} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">Update Password</button>
+            </div>
+            
+            <div className="bg-white p-6 rounded-lg shadow-md text-center">
+                <h3 className="text-gray-500 text-lg">Average Store Rating</h3>
+                <p className="text-5xl font-bold mt-2">{averageRating} <span className="text-2xl text-gray-400">/ 5</span></p>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-semibold mb-4">Users Who Rated Your Store</h3>
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User Name</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rating Given</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {raters.map(rater => (
+                            <tr key={rater.id}>
+                                <td className="px-6 py-4 whitespace-nowrap">{rater.name}</td>
+                                <td className="px-6 py-4 whitespace-nowrap"><StarRating rating={rater.rating} readOnly={true} /></td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            <Modal isOpen={isPasswordModalOpen} onClose={() => setPasswordModalOpen(false)}>
+                <UpdatePasswordForm onUpdate={handlePasswordUpdate} onCancel={() => setPasswordModalOpen(false)} />
+            </Modal>
+        </div>
+    );
+};
+
+
+// --- AUTHENTICATION PAGES ---
+
+const LoginPage = ({ onSwitchToSignup }) => {
+  const [credentials, setCredentials] = useState({ email: '', password: '' });
+  const [error, setError] = useState('');
+  const { login } = useAuth();
+
+  const handleChange = (e) => {
+    setCredentials({ ...credentials, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setError('');
+    const user = login(credentials.email, credentials.password);
+    if (!user) {
+      setError('Invalid email or password.');
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="max-w-md w-full bg-white p-8 rounded-lg shadow-lg">
+        <h2 className="text-center text-3xl font-extrabold text-gray-900 mb-6">Login</h2>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <InputField id="email" name="email" label="Email Address" type="email" value={credentials.email} onChange={handleChange} required />
+          <InputField id="password" name="password" label="Password" type="password" value={credentials.password} onChange={handleChange} required />
+          {error && <p className="text-sm text-red-600 text-center">{error}</p>}
+          <div>
+            <button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+              Sign in
+            </button>
+          </div>
+        </form>
+        <p className="mt-4 text-center text-sm text-gray-600">
+          Not a member?{' '}
+          <button onClick={onSwitchToSignup} className="font-medium text-indigo-600 hover:text-indigo-500">
+            Sign up now
+          </button>
+        </p>
+      </div>
+    </div>
+  );
+};
+
+const SignupPage = ({ onSwitchToLogin }) => {
+    const [formData, setFormData] = useState({ name: '', email: '', address: '', password: '' });
+    const [errors, setErrors] = useState({});
+    const [success, setSuccess] = useState(false);
+
+    const handleChange = (e) => {
+        setFormData({ ...formData, [e.target.name]: e.target.value });
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        setErrors({});
+        setSuccess(false);
+
+        const newErrors = {};
+        if (!validateName(formData.name)) newErrors.name = "Name must be 20-60 characters long.";
+        if (!validateEmail(formData.email)) newErrors.email = "Please enter a valid email address.";
+        if (!validateAddress(formData.address)) newErrors.address = "Address cannot be empty and max 400 characters.";
+        if (!validatePassword(formData.password)) newErrors.password = "Password must be 8-16 characters and include an uppercase letter and a special character.";
+        
+        if (Object.keys(newErrors).length > 0) {
+            setErrors(newErrors);
+            return;
+        }
+
+        // In a real app, this would be an API call. Here we just add to our mock data.
+        const newUser = { id: Date.now(), ...formData, role: 'Normal User' };
+        initialUsers.push(newUser);
+        setSuccess(true);
+    };
+
+    if (success) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-100">
+                <div className="max-w-md w-full bg-white p-8 rounded-lg shadow-lg text-center">
+                    <h2 className="text-2xl font-bold text-green-600 mb-4">Signup Successful!</h2>
+                    <p>You can now log in with your credentials.</p>
+                    <button onClick={onSwitchToLogin} className="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">
+                        Go to Login
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-100 py-12">
+            <div className="max-w-md w-full bg-white p-8 rounded-lg shadow-lg">
+                <h2 className="text-center text-3xl font-extrabold text-gray-900 mb-6">Create an Account</h2>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <InputField id="name" name="name" label="Full Name" type="text" value={formData.name} onChange={handleChange} error={errors.name} required />
+                    <InputField id="email" name="email" label="Email Address" type="email" value={formData.email} onChange={handleChange} error={errors.email} required />
+                    <InputField id="address" name="address" label="Address" type="text" value={formData.address} onChange={handleChange} error={errors.address} required />
+                    <InputField id="password" name="password" label="Password" type="password" value={formData.password} onChange={handleChange} error={errors.password} required />
+                    <div>
+                        <button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
+                            Sign up
+                        </button>
+                    </div>
+                </form>
+                <p className="mt-4 text-center text-sm text-gray-600">
+                    Already a member?{' '}
+                    <button onClick={onSwitchToLogin} className="font-medium text-indigo-600 hover:text-indigo-500">
+                        Log in
+                    </button>
+                </p>
+            </div>
+        </div>
+    );
+};
+
+
+// --- MAIN APP COMPONENT ---
+
+export default function App() {
+  const [users, setUsers] = useState(initialUsers);
+  const [stores, setStores] = useState(initialStores);
+  const [ratings, setRatings] = useState(initialRatings);
+  const [showSignup, setShowSignup] = useState(false);
+
+  const MainContent = () => {
+    const { currentUser } = useAuth();
+
+    if (!currentUser) {
+      return showSignup 
+        ? <SignupPage onSwitchToLogin={() => setShowSignup(false)} /> 
+        : <LoginPage onSwitchToSignup={() => setShowSignup(true)} />;
+    }
+
+    const renderDashboard = () => {
+      switch (currentUser.role) {
+        case 'System Administrator':
+          return <AdminDashboard users={users} setUsers={setUsers} stores={stores} setStores={setStores} ratings={ratings} />;
+        case 'Normal User':
+          return <UserDashboard stores={stores} ratings={ratings} setRatings={setRatings} />;
+        case 'Store Owner':
+          return <StoreOwnerDashboard stores={stores} users={users} ratings={ratings} />;
+        default:
+          return <div>Unknown role. Please contact support.</div>;
+      }
+    };
+    
+    return (
+        <div className="min-h-screen bg-gray-50">
+            <Header />
+            <main>
+                {renderDashboard()}
+            </main>
+        </div>
+    );
+  };
+
+  return (
+    <AuthProvider>
+      <MainContent />
+    </AuthProvider>
+  );
+}
